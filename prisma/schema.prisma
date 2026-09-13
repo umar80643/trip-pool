@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth ----------
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String
+  passwordHash    String? // null if user only ever signs in via magic link
+  avatarUrl       String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+
+  memberships     GroupMember[]
+  expensesPaid    Expense[]      @relation("PaidBy")
+  splits          ExpenseSplit[]
+  settlementsFrom Settlement[]   @relation("SettlementFrom")
+  settlementsTo   Settlement[]   @relation("SettlementTo")
+  sessions        Session[]
+  accounts        Account[]
+  invitesSent     GroupInvite[]  @relation("InvitedBy")
+  savedPlaces     SavedPlace[]
+  chatMessages    ChatMessage[]
+  itineraryItems  ItineraryItem[]
+  passwordResetTokens    PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  packingItemsAssigned PackingItem[] @relation("PackingAssignedTo")
+  packingItemsAdded    PackingItem[] @relation("PackingAddedBy")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Groups ----------
+
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+
+  // Trip destination anchor — set via /explore, used to search nearby stays,
+  // restaurants, and attractions. Null until a member sets it.
+  destinationName String?
+  destinationLat  Float?
+  destinationLon  Float?
+
+  // Trip dates — set via /itinerary/dates. Drive how many day tabs the
+  // itinerary shows. Null until a member sets them.
+  startDate DateTime?
+  endDate   DateTime?
+
+  members     GroupMember[]
+  expenses    Expense[]
+  settlements Settlement[]
+  invites     GroupInvite[]
+  savedPlaces SavedPlace[]
+  chatMessages ChatMessage[]
+  itineraryItems ItineraryItem[]
+  packingItems PackingItem[]
+}
+
+model GroupMember {
+  id      String @id @default(cuid())
+  userId  String
+  groupId String
+  role    String @default("member") // "admin" | "member"
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+}
+
+// Shareable invite link / email invite. Token is opaque and single-use-ish
+// (can be revoked); accepting it creates a GroupMember row.
+model GroupInvite {
+  id          String    @id @default(cuid())
+  // 32 random bytes, base64url-encoded (see src/lib/tokens.ts) — unlike a
+  // cuid, this is generated to be cryptographically unguessable, since it
+  // alone grants access to the group.
+  token       String    @unique
+  groupId     String
+  email       String? // null => generic shareable link, anyone with the link can join
+  invitedById String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+
+  group     Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  invitedBy User  @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([groupId])
+}
+
+// ---------- Expenses ----------
+
+model Expense {
+  id          String   @id @default(cuid())
+  groupId     String
+  paidById    String
+  amountCents Int
+  description String
+  category    String
+  splitType   String   @default("equal") // "equal" | "exact" | "percentage" | "shares"
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  group  Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  paidBy User           @relation("PaidBy", fields: [paidById], references: [id])
+  splits ExpenseSplit[]
+
+  @@index([groupId])
+  @@index([groupId, date])
+}
+
+model ExpenseSplit {
+  id          String @id @default(cuid())
+  expenseId   String
+  userId      String
+  amountCents Int // this user's share of the expense, in cents (always positive)
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([expenseId, userId])
+}
+
+// ---------- Settlements ----------
+
+model Settlement {
+  id          String    @id @default(cuid())
+  groupId     String
+  fromUserId  String
+  toUserId    String
+  amountCents Int
+  settledAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUser User  @relation("SettlementFrom", fields: [fromUserId], references: [id])
+  toUser   User  @relation("SettlementTo", fields: [toUserId], references: [id])
+
+  @@index([groupId])
+}
+
+// ---------- Explore (stays / restaurants / attractions) ----------
+
+// A place a member bookmarked from the Explore tab (backed by OpenStreetMap
+// data — see src/lib/places.ts). externalId is the OSM element id ("way/123",
+// "node/456", ...); the unique constraint stops the same place being saved
+// twice under the same category.
+model SavedPlace {
+  id          String   @id @default(cuid())
+  groupId     String
+  category    String // "stay" | "restaurant" | "attraction"
+  externalId  String
+  name        String
+  address     String?
+  lat         Float
+  lon         Float
+  tags        Json?
+  savedById   String
+  createdAt   DateTime @default(now())
+
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  savedBy User  @relation(fields: [savedById], references: [id], onDelete: Cascade)
+
+  itineraryItems ItineraryItem[]
+
+  @@unique([groupId, category, externalId])
+  @@index([groupId])
+}
+
+// ---------- Trip chat ----------
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  groupId   String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
+
+// ---------- Itinerary ----------
+
+// One scheduled stop on a specific day of the trip. Optionally links back to
+// a SavedPlace (so "Save" in Explore -> "Add to itinerary" carries the name/
+// address/coords over) but can also be a free-standing entry (e.g. "Flight
+// to Lisbon") with no place behind it.
+model ItineraryItem {
+  id           String    @id @default(cuid())
+  groupId      String
+  date         DateTime // the calendar day this item falls on (time-of-day ignored)
+  time         String? // free-form display time, e.g. "14:30" — no timezone math needed for a single-trip itinerary
+  title        String
+  notes        String?
+  savedPlaceId String?
+  order        Int // manual sort position within its day; see src/lib/itinerary-order.ts
+  createdById  String
+  createdAt    DateTime  @default(now())
+
+  group      Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  savedPlace SavedPlace? @relation(fields: [savedPlaceId], references: [id], onDelete: SetNull)
+  createdBy  User        @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([groupId, date, order])
+}
+
+// ---------- Account recovery / verification ----------
+
+// Bearer token emailed to a user to prove control of their address before
+// letting them set a new password. See src/lib/tokens.ts for how the token
+// itself is generated (crypto-random, not a cuid).
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Bearer token emailed at signup (and on request) to confirm the user owns
+// the email address they registered with. Single-use: consuming it sets
+// User.emailVerifiedAt and the row is deleted.
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- Packing list ----------
+
+// Either a shared trip item (assignedToId null — anyone can check it off,
+// e.g. "First aid kit") or a personal item on one member's own list
+// (assignedToId set — only that member, or a group admin, can edit/check it
+// off/delete it). GET only ever returns shared items plus the requesting
+// member's own personal items, never other members' personal lists.
+model PackingItem {
+  id           String   @id @default(cuid())
+  groupId      String
+  name         String
+  quantity     Int      @default(1)
+  assignedToId String?
+  isPacked     Boolean  @default(false)
+  addedById    String
+  createdAt    DateTime @default(now())
+
+  group      Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedTo User? @relation("PackingAssignedTo", fields: [assignedToId], references: [id], onDelete: Cascade)
+  addedBy    User  @relation("PackingAddedBy", fields: [addedById], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}

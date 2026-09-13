@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Fraunces", serif;
+  --font-body: "Inter", sans-serif;
+}
+
+body {
+  background-color: #FBF9F6;
+  color: #161311;
+}
+
+.card {
+  background: #FFFFFF;
+  border: 1px solid #DCD4C7;
+  border-radius: 6px;
+}
+
+.btn-primary {
+  background-color: #2F4F3E;
+  color: #FBF9F6;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  transition: background-color 150ms ease;
+}
+.btn-primary:hover {
+  background-color: #24402f;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: #2F4F3E;
+  border: 1px solid #2F4F3E;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+}
+.btn-secondary:hover {
+  background-color: #EFEAE1;
+}
+
+.input {
+  border: 1px solid #DCD4C7;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  background: #FFFFFF;
+  width: 100%;
+}
+.input:focus {
+  outline: 2px solid #2F4F3E;
+  outline-offset: 1px;
+}
+
+.tag-positive {
+  color: #2F4F3E;
+}
+.tag-negative {
+  color: #B5502F;
+}
