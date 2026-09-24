@@ -1,4 +1,4 @@
-# TripPool
+# TripPool 
 
 A trip-planning app for groups — plan the trip, find places to stay and eat, discover top
 attractions, and settle up shared expenses at the end. Settle Up is one feature among several:
