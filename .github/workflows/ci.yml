@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same branch/PR so pushing a fix doesn't leave
+# a stale run occupying a runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, lint, and test
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values — nothing here connects to a real database or sends a
+      # real email. prisma generate reads DATABASE_URL from the schema's
+      # datasource block but doesn't need it to be reachable; NEXTAUTH_SECRET
+      # just needs to be present so nothing warns about a missing env var.
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/trippool_ci"
+      NEXTAUTH_SECRET: "ci-only-placeholder-not-a-real-secret"
+      NEXTAUTH_URL: "http://localhost:3000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # Informational only — see the Security section in README.md for why
+      # this doesn't block merges: some advisories in the Next.js 14.x line
+      # apply to newer-era features this app doesn't use. A human should
+      # still glance at this output periodically.
+      - name: Dependency audit (informational)
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
