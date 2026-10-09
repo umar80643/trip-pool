@@ -5,7 +5,7 @@
   "description": "TripPool — plan trips together: itinerary, stays, food, attractions, and settle up",
   "scripts": {
     "dev": "node src/server/dev-server.js",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "node src/server/dev-server.js",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
